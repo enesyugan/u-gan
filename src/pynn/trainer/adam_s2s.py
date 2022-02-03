@@ -138,12 +138,14 @@ def train_model(model, datasets, epochs, device, cfg, fp16=False, dist=False):
     opt = ScheduledOptim(n_warmup, n_const, lr)
     model_opt = opt.initialize(model, device, weight_decay=weight_decay, dist=dist)
 
-    tr_data, cv_dat = datasets
+    tr_data, cv_dats = datasets
     pool = EpochPool(n_save)
     epoch_i, _ = load_last_chkpt(model_path, model, opt)
 
     tr_data.initialize(b_input, b_sample)
-    cv_dat.initialize(b_input, b_sample)
+    for cv_path,cv_dat in cv_dats.items():
+        cv_dat.initialize(b_input, b_sample)
+
     while epoch_i < epochs:
         tr_data.set_epoch(epoch_i)
         epoch_i += 1 
@@ -155,12 +157,15 @@ def train_model(model, datasets, epochs, device, cfg, fp16=False, dist=False):
         print('  (Training)   ppl: {:8.5f}, accuracy: {:3.3f} %, elapse: {:3.3f} min'.format(
                  math.exp(min(tr_loss, 100)), 100*tr_accu, (time.time()-start)/60))
 
-        start = time.time()
-        cv_loss, cv_accu = eval_epoch(model_opt, cv_dat, device, fp16=fp16)
-        print('  (Validation) ppl: {:8.5f}, accuracy: {:3.3f} %, elapse: {:3.3f} min'.format(
-                 math.exp(min(cv_loss, 100)), 100*cv_accu, (time.time()-start)/60))
+        total_cv_loss = 0
+        for cv_path, cv_dat in cv_dats.items():
+            start = time.time() 
+            cv_loss, cv_accu = eval_epoch(model_opt, cv_dat, device, fp16=fp16)
+            print('  (Validation) ppl: {:8.5f}, accuracy: {:3.3f} %, elapse: {:3.3f} min'.format(
+                     math.exp(min(cv_loss, 100)), 100*cv_accu, (time.time()-start)/60))
+            total_cv_loss += cv_loss
 
-        if math.isnan(cv_loss): continue
+        if math.isnan(total_cv_loss): continue
         model_file = model_path + '/epoch-{}.pt'.format(epoch_i)
-        pool.save(cv_loss, model_file, model)
+        pool.save(total_cv_loss, model_file, model)
         save_last_chkpt(model_path, epoch_i, model, opt)

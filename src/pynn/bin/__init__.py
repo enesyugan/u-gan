@@ -18,14 +18,17 @@ def print_model(model):
     
 def train_s2s_model(model, args, device, n_device=1):
     dist, verbose = n_device > 1, device == 0
-    tr_data = SpectroDataset(args.train_scp, args.train_target, downsample=args.downsample,
+    tr_data = SpectroDataset(args.train_scps, args.train_targets, downsample=args.downsample,
                              sort_src=True, mean_sub=args.mean_sub, var_norm=args.var_norm,
                              spec_drop=args.spec_drop, spec_bar=args.spec_bar, spec_ratio=args.spec_ratio,
                              time_stretch=args.time_stretch, time_win=args.time_win,
                              fp16=args.fp16, preload=args.preload, threads=2, verbose=verbose)
-    cv_data = SpectroDataset(args.valid_scp, args.valid_target, downsample=args.downsample,
+    cv_data = {}
+    for valid_scp in args.valid_scps:
+        cv_data[valid_scp] = SpectroDataset([valid_scp], args.valid_targets, downsample=args.downsample,
                              sort_src=True, mean_sub=args.mean_sub, var_norm=args.var_norm,
                              fp16=args.fp16, preload=args.preload, threads=2, verbose=verbose)
+
     if dist: tr_data.partition(device, n_device)
     n_print = args.n_print // n_device
     b_update = args.b_update // n_device

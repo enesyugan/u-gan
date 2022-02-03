@@ -14,13 +14,13 @@ from torch.utils.data import DataLoader
 from . import smart_open
  
 class SpectroDataset(Dataset):
-    def __init__(self, scp_path, label_path=None, paired_label=False,
+    def __init__(self, scp_paths, label_paths=None, paired_label=False,
                  verbose=True, sek=True, sort_src=False, pack_src=False,
                  downsample=1, preload=False, threads=4, fp16=False, 
                  spec_drop=False, spec_bar=2, spec_ratio=0.4,
                  time_stretch=False, time_win=10000, mean_sub=False, var_norm=False):
-        self.scp_path = scp_path     # path to the .scp file
-        self.label_path = label_path # path to the label file
+        self.scp_paths = [scp_path for scp_path in scp_paths if scp_path != None]    # path to the .scp file
+        self.label_paths = [label_path for label_path in label_paths if label_path != None] # path to the label file
         self.paired_label = paired_label
 
         self.downsample = downsample
@@ -65,36 +65,41 @@ class SpectroDataset(Dataset):
         if self.utt_lbl is not None:
             return
 
-        path = os.path.dirname(self.scp_path)
-        scp_dir = path + '/' if path != '' else ''
-
         utts = {}
-        for line in smart_open(self.scp_path, 'r'):
-            if line.startswith('#'): continue
-            tokens = line.replace('\n','').split(' ')
-            utt_id, path_pos = tokens[0:2]
-            utt_len = -1 if len(tokens)<=2 else int(tokens[2])
-            path, pos = path_pos.split(':')
-            path = path if path.startswith('/') else scp_dir + path
-            utts[utt_id] = (utt_id, path, pos, utt_len)
+        for scp_path in self.scp_paths:
+            path = os.path.dirname(scp_path)
+            scp_dir = path + '/' if path != '' else ''
+            scp_name = scp_path.rsplit('/',1)[-1]
+            for line in smart_open(os.path.join(scp_dir,scp_name), 'r'):
+                if line.startswith('#'): continue
+                tokens = line.replace('\n','').split(' ')
+                utt_id, path_pos = tokens[0:2]
+                utt_len = -1 if len(tokens)<=2 else int(tokens[2])
+                path, pos = path_pos.split(':')
+                path = path if path.startswith('/') else scp_dir + path
+                utts[utt_id] = (utt_id, path, pos, utt_len)
  
         labels = {}
-        for line in smart_open(self.label_path, 'r'):
-            tokens = line.split()
-            utt_id = tokens[0]
-            if utt_id == '' or utt_id not in utts: continue
+        used_label_paths = list()
+        for label_path in self.label_paths:
+            if label_path in used_label_paths: continue
+            used_label_paths.append(label_path)
+            for line in smart_open(label_path, 'r'):
+                tokens = line.split()
+                utt_id = tokens[0]
+                if utt_id == '' or utt_id not in utts: continue
 
-            if self.paired_label:
-                sp = tokens.index('|', 1)
-                lb1 = [int(token) for token in tokens[1:sp]]
-                lb1 = [1] + [el+2 for el in lb1] + [2] if self.sek else lb1
-                lb2 = [int(token) for token in tokens[sp+1:]]
-                lb2 = [1] + [el+2 for el in lb2] + [2] if self.sek else lb2
-                lbl = (lb1, lb2)
-            else:
-                lbl = [int(token) for token in tokens[1:]]
-                lbl = [1] + [el+2 for el in lbl] + [2] if self.sek else lbl
-            labels[utt_id] = lbl
+                if self.paired_label:
+                    sp = tokens.index('|', 1)
+                    lb1 = [int(token) for token in tokens[1:sp]]
+                    lb1 = [1] + [el+2 for el in lb1] + [2] if self.sek else lb1
+                    lb2 = [int(token) for token in tokens[sp+1:]]
+                    lb2 = [1] + [el+2 for el in lb2] + [2] if self.sek else lb2
+                    lbl = (lb1, lb2)
+                else:
+                    lbl = [int(token) for token in tokens[1:]]
+                    lbl = [1] + [el+2 for el in lbl] + [2] if self.sek else lbl
+                labels[utt_id] = lbl
 
         utt_lbl = []
         for utt_id, utt_info in utts.items():
